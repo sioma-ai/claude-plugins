@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "sioma": {
+      "type": "http",
+      "url": "${SIOMA_CELL_URL:-https://aws-us1.cells.sioma.ai}/mcp",
+      "headers": {
+        "Authorization": "Bearer ${SIOMA_API_KEY}"
+      }
+    }
+  }
+}

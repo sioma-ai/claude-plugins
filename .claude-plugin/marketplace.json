@@ -1,0 +1,14 @@
+{
+  "name": "sioma",
+  "owner": {
+    "name": "Sioma",
+    "email": "hello@sioma.ai"
+  },
+  "plugins": [
+    {
+      "name": "sioma",
+      "source": "./plugins/sioma",
+      "description": "Connect your coding agent to Sioma — minimal context per task from your own API's entity graph. Installing registers the Sioma MCP server and adds the extract-openapi + benchmark-questions skills."
+    }
+  ]
+}
