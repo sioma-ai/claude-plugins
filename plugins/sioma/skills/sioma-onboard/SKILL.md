@@ -88,10 +88,12 @@ If either key is missing, run the OAuth device flow (RFC 8628). A key cannot min
 so the one human act is a single browser click — you do everything else; never ask the
 user to mint, copy or paste a key.
 
-1. Request a device code (public endpoint, no auth):
+1. Request a device code (public endpoint, no auth). Each block below sets
+   `SIOMA_APP_URL` inline so it stands alone — a var exported in a separate command
+   is gone in the next:
 
 ```sh
-curl -fsS -X POST "$SIOMA_APP_URL/oauth/device" \
+SIOMA_APP_URL=${SIOMA_APP_URL:-https://app.sioma.ai} curl -fsS -X POST "$SIOMA_APP_URL/oauth/device" \
   -H "content-type: application/json" \
   -d '{"client_name":"<your agent name, e.g. Claude Code>"}'
 ```
@@ -104,7 +106,7 @@ curl -fsS -X POST "$SIOMA_APP_URL/oauth/device" \
 3. Poll the token endpoint, waiting `interval` seconds (default 5) between polls:
 
 ```sh
-curl -sS -X POST "$SIOMA_APP_URL/oauth/token" \
+SIOMA_APP_URL=${SIOMA_APP_URL:-https://app.sioma.ai} curl -sS -X POST "$SIOMA_APP_URL/oauth/token" \
   -H "content-type: application/x-www-form-urlencoded" \
   --data-urlencode "grant_type=urn:ietf:params:oauth:grant-type:device_code" \
   --data-urlencode "device_code=<the device_code from step 1>"
@@ -121,13 +123,13 @@ curl -sS -X POST "$SIOMA_APP_URL/oauth/token" \
    terminal, a pasted log) can be claimed by a stranger. Do not publish until the user
    confirms the workspace is theirs.
 
-   Then export both keys and continue. Never write either key into a file — the
-   environment is their only home:
-
-```sh
-export SIOMA_API_KEY=<the access_token value>           # agent key — your MCP credential
-export SIOMA_PUBLISH_KEY=<the sioma_publish_key value>  # publish key — used below
-```
+   You hold both keys now. A shell `export` does NOT carry into your next command
+   (each runs in a fresh shell), so don't rely on `$SIOMA_API_KEY`/`$SIOMA_PUBLISH_KEY`
+   resolving in a later step — put each key's actual value into the request that needs
+   it, or export and use it in the SAME command. Keep the keys in this session and in
+   your agent's own MCP config only; never put them in a file in this repo or anything
+   you commit. The agent key (`access_token`) is your MCP credential; the publish key
+   is used once, in the next step.
 
 Fallback (no browser reachable): the user can mint the keys manually in their Sioma
 workspace — Control room → Keys → New key → scope **publish**, and another with scope
@@ -148,15 +150,18 @@ is what makes it a CI gate: `sioma diff || sioma publish`):
 sioma publish .
 ```
 
-Otherwise call the same two endpoints directly — this always works, no install needed.
-Note `spec` is the PARSED JSON document, not a string:
+Otherwise call the same two endpoints directly (no install needed; needs `jq`, or build
+the same body with node/python if `jq` is missing). `spec` is the PARSED JSON document,
+not a string. Run this as ONE command so the key resolves (a var set in a separate
+command is gone in the next); put the real publish key in the first line. PIPE the body
+in with `--data-binary @-` — a big spec on the `-d` argument hits the shell's argument
+size limit:
 
 ```sh
-curl -fsS -X POST "$SIOMA_APP_URL/api/anatomy/sources" \
-  -H "Authorization: Bearer $SIOMA_PUBLISH_KEY" \
-  -H "content-type: application/json" \
-  -d "$(jq -c --slurpfile spec openapi.json -n '{name:"openapi.json", kind:"paste", spec:$spec[0]}')"
-
+export SIOMA_PUBLISH_KEY=<the sioma_publish_key value> SIOMA_APP_URL=${SIOMA_APP_URL:-https://app.sioma.ai}
+jq -cn --slurpfile spec openapi.json '{name:"openapi.json", kind:"paste", spec:$spec[0]}' \
+  | curl -fsS -X POST "$SIOMA_APP_URL/api/anatomy/sources" \
+      -H "Authorization: Bearer $SIOMA_PUBLISH_KEY" -H "content-type: application/json" --data-binary @-
 curl -fsS -X POST "$SIOMA_APP_URL/api/publish" \
   -H "Authorization: Bearer $SIOMA_PUBLISH_KEY"
 ```
@@ -204,12 +209,16 @@ a 429, wait — do not retry in a loop.
 ## Connect the agent (if it isn't already)
 
 Publishing gets the graph built; connecting is what lets your agent USE it. If Sioma's
-MCP tools aren't available to you, the user needs an `agent`-scoped key (a different key
-from the `publish` one) exported as `SIOMA_API_KEY`, and their agent pointed at the
-cell's `/mcp` endpoint. In Claude Code, installing the Sioma plugin does this. Other
-agents (Cursor, Cline, Copilot, …) each have their own MCP config — write the right one
-for the agent you are, using the cell URL and `Bearer $SIOMA_API_KEY`, and never inline
-the key.
+MCP tools aren't available to you, you need the `agent` key (the `access_token` from the
+device flow, a different key from the `publish` one) registered against the cell's
+`/mcp` endpoint. In Claude Code, installing the Sioma plugin does this; without it, run
+`claude mcp add --transport http sioma "<cellUrl>/mcp" --header "Authorization: Bearer <the
+access_token value>"`. Other agents write their USER-level MCP config (Cursor
+`~/.cursor/mcp.json`, Windsurf `~/.codeium/windsurf/mcp_config.json`, VS Code user
+settings) with the same URL and header — never a project file inside this repo. MCP
+config loads at startup, so BEFORE the restart, give the user the message to send you
+afterward ("Call sioma_list_entities and report the count"); in Claude Code have them
+restart with `claude --continue`. After the restart, call `sioma_list_entities` to confirm.
 
 ## Report
 
