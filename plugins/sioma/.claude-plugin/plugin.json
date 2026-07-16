@@ -1,6 +1,6 @@
 {
   "name": "sioma",
-  "description": "Connect your coding agent to Sioma — minimal context per task from your own API's entity graph. Installing registers the Sioma MCP server and adds the extract-openapi + benchmark-questions skills.",
+  "description": "Connect your coding agent to Sioma — minimal context per task from your own API's entity graph. Installing registers the Sioma MCP server and adds the sioma-onboard, extract-openapi and benchmark-questions skills. Once installed, tell your agent: onboard this repo to Sioma.",
   "author": {
     "name": "Sioma",
     "email": "hello@sioma.ai"
