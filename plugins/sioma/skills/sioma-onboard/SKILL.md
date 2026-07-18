@@ -3,7 +3,7 @@ name: sioma-onboard
 description: Onboard this repository to Sioma end to end — scan the API, write and publish an OpenAPI spec, and verify the entity graph. Use when the user says to onboard/connect/set up this repo or project with Sioma, wants Sioma to know their API, or asks how to get started with Sioma.
 ---
 
-You are running Sioma's onboarding skill (v1.0.0). Do the whole loop — do not stop at a file.
+You are running Sioma's onboarding skill (v1.2.0). Do the whole loop — do not stop at a file.
 
 Onboard this repository to Sioma: produce a spec of its API, publish it, and verify the
 agent can actually see the resulting graph. Work end to end — do not hand the user a
@@ -18,16 +18,31 @@ API, say so and stop — Sioma builds a graph of an API surface; there is nothin
 
 ## 1. Enumerate the routes — deterministically if you can
 
-If `sioma` is on PATH, run it. It walks the AST and emits a byte-stable openapi.json of
-the REAL routes with zero guessing:
+Run Sioma's scanner. It walks the AST and emits a byte-stable openapi.json of the REAL
+routes with zero guessing. A fresh repo won't have `sioma` globally installed — that is
+the common case, so reach for `npx`, which runs the published CLI with no install:
 
 ```sh
-sioma scan .
+sioma scan .                        # if @sioma/cli is already on PATH
+npx -y @sioma/cli@latest scan .     # zero-install — the usual first-run path
 ```
 
 It covers Next.js (App + Pages), express, fastify and hono. Read what it reports.
 
-**Then read the emitted openapi.json critically, because a scan is a floor, not a
+**In a monorepo, scan each app — not the root.** The scanner detects ONE framework at
+the directory you point it at, and a workspace root (a `pnpm-workspace.yaml`, a
+`workspaces` field, or an `apps/`+`packages/` layout) is none — `scan .` there finds
+ZERO. Point it at each package that actually serves an HTTP API (`apps/server`,
+`apps/web`, `services/*`, …), one scan per app, and PUBLISH EACH AS ITS OWN NAMED SOURCE
+(use the package path as the name) so they stay distinct — re-publishing the same name
+just updates that source, never duplicates it:
+
+```sh
+npx -y @sioma/cli@latest scan apps/server --out apps/server/openapi.json
+npx -y @sioma/cli@latest scan apps/web    --out apps/web/openapi.json
+```
+
+**Then read each emitted openapi.json critically, because a scan is a floor, not a
 ceiling.** The scanner only emits what the TypeScript checker can PROVE, and it drops
 anything it can't — by design, because a wrong entity is worse than no entity. On a real
 codebase it will typically give you every route and method, and few or no response
@@ -41,10 +56,11 @@ found them from the code, you would have missed some — and fill in what it lef
 reading the types, validators and ORM models yourself. Never delete a scanned route
 because you can't type it; describe it as best the code supports.
 
-If `sioma` is not on PATH, or the stack isn't covered (Django, Rails, Go, …), check for a
-framework-native generator (NestJS Swagger, drf-spectacular, FastAPI's own /openapi.json)
-and use that as the enumeration floor instead. If nothing is available, enumerate the
-routes by reading the code — exhaustively, every file, no sampling.
+If the scanner can't run (no registry access in an air-gapped CI, or the stack isn't
+covered — Django, Rails, Go, …), check for a framework-native generator (NestJS Swagger,
+drf-spectacular, FastAPI's own /openapi.json) and use that as the enumeration floor
+instead. If nothing is available, enumerate the routes by reading the code — exhaustively,
+every file, no sampling.
 
 ## 2. Write the spec
 
@@ -66,7 +82,8 @@ all, restated because they are where onboarding silently fails:
   miss).
 - Sioma NEVER guesses from a field name. Anything you don't declare does not exist.
 
-Write it to `openapi.json` at the repo root.
+Write it to `openapi.json` at the repo root — or, in a monorepo, one per app beside its
+package (`apps/server/openapi.json`, …), each published as its own named source.
 
 ## Publish it to Sioma — you do this, not the user
 
@@ -142,13 +159,27 @@ become a data-plane one.
 
 ### Publish
 
-Prefer the CLI when `sioma` is on PATH — it scans, uploads and publishes in one step,
-and caches the content hash so a re-run when the code hasn't changed is a no-op (that
-is what makes it a CI gate: `sioma diff || sioma publish`):
+Prefer the CLI, and publish the `openapi.json` you just wrote with `--spec` — a bare
+`sioma publish .` RE-SCANS the repo and would DISCARD every schema and relationship you
+hand-added. Use `npx` when it isn't globally installed:
 
 ```sh
-sioma publish .
+sioma publish --spec openapi.json                        # if @sioma/cli is on PATH
+npx -y @sioma/cli@latest publish --spec openapi.json     # zero-install
 ```
+
+If you split a monorepo into one spec per app, publish each with its own `--spec` and a
+distinct `--name` so each becomes its own source (re-publishing the same name updates it
+in place, never duplicates):
+
+```sh
+npx -y @sioma/cli@latest publish --spec apps/server/openapi.json --name apps/server
+npx -y @sioma/cli@latest publish --spec apps/web/openapi.json    --name apps/web
+```
+
+(In CI, where the spec is regenerated fresh and never hand-edited, `sioma diff || sioma
+publish` WITHOUT `--spec` re-scans and publishes only when the code changed — that is the
+content-hash change-gate.)
 
 Otherwise call the same two endpoints directly (no install needed; needs `jq`, or build
 the same body with node/python if `jq` is missing). `spec` is the PARSED JSON document,
@@ -167,7 +198,8 @@ curl -fsS -X POST "$SIOMA_APP_URL/api/publish" \
 ```
 
 Both are idempotent and tenant-derived-from-key — there is no tenant id to pass and
-no way to publish into someone else's workspace.
+no way to publish into someone else's workspace. In a monorepo, repeat the two calls per
+app, giving each source POST its own `name` (the app path) and its app's `openapi.json`.
 
 **A 2xx from `/api/publish` is NOT success.** Read the response body:
 
@@ -188,7 +220,10 @@ manifest before an agent sees it. Confirm with the graph itself:
 
 - If you are connected to Sioma over MCP, call **`sioma_list_entities`** and report the
   count and the entity names.
-- The count must match what the user's dashboard shows.
+- A NON-EMPTY list is the pass signal — not an exact number. The agent's list includes
+  action endpoints that aren't standalone entities, which the dashboard filters out, so
+  the agent's count is normally HIGHER than the dashboard's; a larger count is expected,
+  not a mismatch. The only failures are ZERO entities or "No spec is registered".
 
 Then say plainly what you got:
 

@@ -3,11 +3,11 @@ name: extract-openapi
 description: Generate or repair an OpenAPI spec for this repository so Sioma can build its entity graph. Use when the user wants to extract/produce/fix an openapi.json for Sioma, or asks how to get their API into Sioma.
 ---
 
-You are running Sioma's extract-openapi skill (prompt v3.0.0) — produce the spec, then publish it yourself.
+You are running Sioma's extract-openapi skill (prompt v3.1.0) — produce the spec, then publish it yourself.
 
 Produce an OpenAPI 3.x spec for this repository's API, as a single JSON file named openapi.json. Sioma ingests it to build a typed entity graph AND to serve your agent the minimal context per task — so the spec must be BOTH complete (every endpoint, input, and field the API really has) AND graph-shaped (named schemas + declared relationships). A thin spec builds a thin, useless graph; an incomplete spec leaves your agent blind to half the API. Do both.
 
-PREFER A DETERMINISTIC SCAN — this prompt is the FALLBACK. If a static analyzer is available, RUN IT FIRST instead of writing the spec by hand: the Sioma CLI (`sioma scan`, which emits a byte-stable openapi.json from your real routes + TS types with zero guessing), or your framework's own spec generator (NestJS/FastAPI/drf-spectacular/…). A deterministic scan is repeatable and CI-friendly — a re-run changes only when the CODE changed, which is exactly what Sioma's publish loop wants. With a scanned spec, use the steps below ONLY to fill the semantic x-sioma-ai fields and repair anything the scanner left unknown. Follow the full instructions below when no scanner covers this stack and you must generate the spec by hand.
+PREFER A DETERMINISTIC SCAN — this prompt is the FALLBACK. If a static analyzer is available, RUN IT FIRST instead of writing the spec by hand: the Sioma CLI (`npx -y @sioma/cli@latest scan .`, or `sioma scan .` if it is globally installed — it emits a byte-stable openapi.json from your real routes + TS types with zero guessing), or your framework's own spec generator (NestJS/FastAPI/drf-spectacular/…). A deterministic scan is repeatable and CI-friendly — a re-run changes only when the CODE changed, which is exactly what Sioma's publish loop wants. With a scanned spec, use the steps below ONLY to fill the semantic x-sioma-ai fields and repair anything the scanner left unknown. Follow the full instructions below when no scanner covers this stack and you must generate the spec by hand.
 
 Work in this order.
 
@@ -119,13 +119,27 @@ become a data-plane one.
 
 ### Publish
 
-Prefer the CLI when `sioma` is on PATH — it scans, uploads and publishes in one step,
-and caches the content hash so a re-run when the code hasn't changed is a no-op (that
-is what makes it a CI gate: `sioma diff || sioma publish`):
+Prefer the CLI, and publish the `openapi.json` you just wrote with `--spec` — a bare
+`sioma publish .` RE-SCANS the repo and would DISCARD every schema and relationship you
+hand-added. Use `npx` when it isn't globally installed:
 
 ```sh
-sioma publish .
+sioma publish --spec openapi.json                        # if @sioma/cli is on PATH
+npx -y @sioma/cli@latest publish --spec openapi.json     # zero-install
 ```
+
+If you split a monorepo into one spec per app, publish each with its own `--spec` and a
+distinct `--name` so each becomes its own source (re-publishing the same name updates it
+in place, never duplicates):
+
+```sh
+npx -y @sioma/cli@latest publish --spec apps/server/openapi.json --name apps/server
+npx -y @sioma/cli@latest publish --spec apps/web/openapi.json    --name apps/web
+```
+
+(In CI, where the spec is regenerated fresh and never hand-edited, `sioma diff || sioma
+publish` WITHOUT `--spec` re-scans and publishes only when the code changed — that is the
+content-hash change-gate.)
 
 Otherwise call the same two endpoints directly (no install needed; needs `jq`, or build
 the same body with node/python if `jq` is missing). `spec` is the PARSED JSON document,
@@ -144,7 +158,8 @@ curl -fsS -X POST "$SIOMA_APP_URL/api/publish" \
 ```
 
 Both are idempotent and tenant-derived-from-key — there is no tenant id to pass and
-no way to publish into someone else's workspace.
+no way to publish into someone else's workspace. In a monorepo, repeat the two calls per
+app, giving each source POST its own `name` (the app path) and its app's `openapi.json`.
 
 **A 2xx from `/api/publish` is NOT success.** Read the response body:
 
@@ -165,7 +180,10 @@ manifest before an agent sees it. Confirm with the graph itself:
 
 - If you are connected to Sioma over MCP, call **`sioma_list_entities`** and report the
   count and the entity names.
-- The count must match what the user's dashboard shows.
+- A NON-EMPTY list is the pass signal — not an exact number. The agent's list includes
+  action endpoints that aren't standalone entities, which the dashboard filters out, so
+  the agent's count is normally HIGHER than the dashboard's; a larger count is expected,
+  not a mismatch. The only failures are ZERO entities or "No spec is registered".
 
 Then say plainly what you got:
 
