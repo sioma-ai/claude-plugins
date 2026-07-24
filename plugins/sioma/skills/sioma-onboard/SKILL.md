@@ -3,7 +3,7 @@ name: sioma-onboard
 description: Onboard this repository to Sioma end to end — scan the API, write and publish an OpenAPI spec, and verify the entity graph. Use when the user says to onboard/connect/set up this repo or project with Sioma, wants Sioma to know their API, or asks how to get started with Sioma.
 ---
 
-You are running Sioma's onboarding skill (v1.2.0). Do the whole loop — do not stop at a file.
+You are running Sioma's onboarding skill (v1.5.0). Do the whole loop — do not stop at a file.
 
 Onboard this repository to Sioma: produce a spec of its API, publish it, and verify the
 agent can actually see the resulting graph. Work end to end — do not hand the user a
@@ -81,6 +81,14 @@ all, restated because they are where onboarding silently fails:
   → `"order-item"`, never `"OrderItem"` — camelCase is not normalized and would silently
   miss).
 - Sioma NEVER guesses from a field name. Anything you don't declare does not exist.
+- **ASK THE USER for the API's base URL** — one absolute http(s) URL where this API is
+  actually served (e.g. `https://api.example.com`). Neither you nor the scanner can know
+  a deploy URL from code, and Sioma never infers one: without a declared `servers` entry
+  the graph serves context but can run NO flows. Pass it to the scanner
+  (`sioma scan . --server https://api.example.com`) or write it as the spec's top-level
+  `"servers": [{"url": "..."}]` (exactly one). If the user has no stable URL yet, say so
+  honestly and continue — context works either way; flows unlock when a server is declared
+  and republished.
 
 Write it to `openapi.json` at the repo root — or, in a monorepo, one per app beside its
 package (`apps/server/openapi.json`, …), each published as its own named source.
@@ -106,11 +114,12 @@ so the one human act is a single browser click — you do everything else; never
 user to mint, copy or paste a key.
 
 1. Request a device code (public endpoint, no auth). Each block below sets
-   `SIOMA_APP_URL` inline so it stands alone — a var exported in a separate command
-   is gone in the next:
+   `SIOMA_APP_URL` on its own line first (a prefix assignment on the curl line
+   itself would NOT expand in that same command's URL), so the block stands
+   alone — a var exported in a separate command is gone in the next:
 
 ```sh
-SIOMA_APP_URL=${SIOMA_APP_URL:-https://app.sioma.ai} curl -fsS -X POST "$SIOMA_APP_URL/oauth/device" \
+SIOMA_APP_URL=${SIOMA_APP_URL:-https://app.sioma.ai}; curl -fsS -X POST "$SIOMA_APP_URL/oauth/device" \
   -H "content-type: application/json" \
   -d '{"client_name":"<your agent name, e.g. Claude Code>"}'
 ```
@@ -123,7 +132,7 @@ SIOMA_APP_URL=${SIOMA_APP_URL:-https://app.sioma.ai} curl -fsS -X POST "$SIOMA_A
 3. Poll the token endpoint, waiting `interval` seconds (default 5) between polls:
 
 ```sh
-SIOMA_APP_URL=${SIOMA_APP_URL:-https://app.sioma.ai} curl -sS -X POST "$SIOMA_APP_URL/oauth/token" \
+SIOMA_APP_URL=${SIOMA_APP_URL:-https://app.sioma.ai}; curl -sS -X POST "$SIOMA_APP_URL/oauth/token" \
   -H "content-type: application/x-www-form-urlencoded" \
   --data-urlencode "grant_type=urn:ietf:params:oauth:grant-type:device_code" \
   --data-urlencode "device_code=<the device_code from step 1>"
@@ -254,6 +263,22 @@ settings) with the same URL and header — never a project file inside this repo
 config loads at startup, so BEFORE the restart, give the user the message to send you
 afterward ("Call sioma_list_entities and report the count"); in Claude Code have them
 restart with `claude --continue`. After the restart, call `sioma_list_entities` to confirm.
+
+## If rails is on: ride, don't hand-call
+
+If the tool list includes `sioma_board`, this workspace has rail mode on: when a
+`sioma_focus` response carries `rails`, prefer BOARDING one over making the API calls
+yourself — `sioma_board` with the rail's `entityId` (+ the `recordId` from that focus, so
+the completed ride records its outcome), then `sioma_provide` for any pending slot. Sioma
+makes the calls; you get the step results. Read flows are compiled from the
+declared spec and run on their own — a step that needs an API key the workspace hasn't
+added halts honestly; report that rather than working around it.
+
+A WRITE flow (`sioma_board` with a non-GET `method`) never runs on its own: the session
+pauses in `awaiting-approval` until the workspace owner approves that exact flow. Show
+the user the approval `url` from the response and poll `sioma_inspect` — the ride resumes
+by itself once approved, or halts if denied. Never retry `sioma_board` to get past the
+pause, and never make the write calls yourself instead.
 
 ## Report
 

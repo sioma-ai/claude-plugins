@@ -66,11 +66,12 @@ so the one human act is a single browser click — you do everything else; never
 user to mint, copy or paste a key.
 
 1. Request a device code (public endpoint, no auth). Each block below sets
-   `SIOMA_APP_URL` inline so it stands alone — a var exported in a separate command
-   is gone in the next:
+   `SIOMA_APP_URL` on its own line first (a prefix assignment on the curl line
+   itself would NOT expand in that same command's URL), so the block stands
+   alone — a var exported in a separate command is gone in the next:
 
 ```sh
-SIOMA_APP_URL=${SIOMA_APP_URL:-https://app.sioma.ai} curl -fsS -X POST "$SIOMA_APP_URL/oauth/device" \
+SIOMA_APP_URL=${SIOMA_APP_URL:-https://app.sioma.ai}; curl -fsS -X POST "$SIOMA_APP_URL/oauth/device" \
   -H "content-type: application/json" \
   -d '{"client_name":"<your agent name, e.g. Claude Code>"}'
 ```
@@ -83,7 +84,7 @@ SIOMA_APP_URL=${SIOMA_APP_URL:-https://app.sioma.ai} curl -fsS -X POST "$SIOMA_A
 3. Poll the token endpoint, waiting `interval` seconds (default 5) between polls:
 
 ```sh
-SIOMA_APP_URL=${SIOMA_APP_URL:-https://app.sioma.ai} curl -sS -X POST "$SIOMA_APP_URL/oauth/token" \
+SIOMA_APP_URL=${SIOMA_APP_URL:-https://app.sioma.ai}; curl -sS -X POST "$SIOMA_APP_URL/oauth/token" \
   -H "content-type: application/x-www-form-urlencoded" \
   --data-urlencode "grant_type=urn:ietf:params:oauth:grant-type:device_code" \
   --data-urlencode "device_code=<the device_code from step 1>"
